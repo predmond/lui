@@ -8,10 +8,6 @@
 ##
 ##===----------------------------------------------------------------------===##
 
-
-
-import curses
-
 import lldb
 import lldbutil
 
@@ -23,13 +19,14 @@ import sys
 import Queue
 
 import debuggerdriver
-import cui
 
-import breakwin
+#import breakwin
 import commandwin
-import eventwin
-import sourcewin
+#import eventwin
+#import sourcewin
 import statuswin
+
+import urwid
 
 event_queue = None
 
@@ -63,52 +60,88 @@ def sigint_handler(signal, frame):
   global debugger
   debugger.terminate()
 
-class LLDBUI(cui.CursesUI):
-  def __init__(self, screen, event_queue, driver):
-    super(LLDBUI, self).__init__(screen, event_queue)
+class LLDBView(urwid.WidgetWrap):
+  palette = [('body',         'black',      'light gray', 'standout'),
+             ('header',       'white',      'dark red',   'bold'),
+             ('screen edge',  'light blue', 'dark cyan'),
+             ('main shadow',  'dark gray',  'black'),
+             ('line',         'black',      'light gray', 'standout'),
+             ('bg background','light gray', 'black'),
+             ('bg 1',         'black',      'dark blue', 'standout'),
+             ('bg 1 smooth',  'dark blue',  'black'),
+             ('bg 2',         'black',      'dark cyan', 'standout'),
+             ('bg 2 smooth',  'dark cyan',  'black'),
+             ('button normal','light gray', 'dark blue', 'standout'),
+             ('button select','white',      'dark green'),
+             ('line',         'black',      'light gray', 'standout'),
+             ('pg normal',    'white',      'black', 'standout'),
+             ('pg complete',  'white',      'dark magenta'),
+             ('pg smooth',     'dark magenta','black'),
+             ('key', 'light cyan', 'black','underline'),
+             ('title', 'white', 'black', 'bold'),
+             ]
+
+  def __init__(self, controller, driver):
+    self.controller = controller
+    self.driver = driver
+    urwid.WidgetWrap.__init__(self, self.main_window())
+
+  def main_window(self):
+
+    self.status_win = statuswin.StatusWin()
+    self.command_win = commandwin.CommandWin(self.driver)
+    #self.source_win = sourcewin.SourceWin(self.driver)
+    #self.break_win = breakwin.BreakWin(self.driver)
+
+    def create(w, title):
+      return urwid.Frame(body = urwid.AttrWrap(w, 'body'),
+                         header = urwid.AttrWrap(urwid.Text(title), 'header'))
+
+    bp = create(urwid.SolidFill(' '), 'Breakpoints')
+    st = create(urwid.SolidFill(' '), 'Stacktrace')
+    src = create(urwid.SolidFill(' '), 'Source')
+    cmd = create(self.command_win, 'Commands')
+
+    top = urwid.SolidFill('1')
+    bottom = urwid.SolidFill('2')
+
+    self.frame = urwid.Frame(
+      body = urwid.Pile([
+               urwid.Columns([
+                 ('weight', 3, src),
+                 ('weight', 2, urwid.Pile([bp, st]))]),
+               #urwid.Divider('-'),
+               cmd]),
+      footer = urwid.AttrWrap(self.status_win, 'footer')) 
+
+    return self.frame
+
+class LLDBUI:
+  def __init__(self, event_queue, driver):
+    #super(LLDBUI, self).__init__(screen, event_queue)
 
     self.driver = driver
 
-    h, w = self.screen.getmaxyx()
+    self.view = LLDBView(self, self.driver)
 
-    command_win_height = 20
-    break_win_width = 60
+  def unhandled_input(self, k):
+    if k == 'f10':
+      self.driver.terminate()
+      raise urwid.ExitMainLoop()
+    if k == 'f1':
+      def foo(cmd):
+        ret = lldb.SBCommandReturnObject()
+        self.driver.getCommandInterpreter().HandleCommand(cmd, ret)
+      foo('target create a.out')
+      foo('b main')
+      foo('run')
 
-    self.status_win = statuswin.StatusWin(0, h-1, w, 1)
-    h -= 1
-    self.command_win = commandwin.CommandWin(driver, 0, h - command_win_height,
-                                             w, command_win_height)
-    h -= command_win_height
-    self.source_win = sourcewin.SourceWin(driver, 0, 0,
-                                          w - break_win_width - 1, h)
-    self.break_win = breakwin.BreakWin(driver, w - break_win_width, 0,
-                                       break_win_width, h)
+  def main(self):
+    self.loop = urwid.MainLoop(self.view, self.view.palette,
+                               unhandled_input = self.unhandled_input)
+    self.loop.run()
 
-
-    self.wins = [self.status_win,
-                 #self.event_win,
-                 self.source_win,
-                 self.break_win,
-                 self.command_win,
-                 ]
-
-    self.focus = len(self.wins) - 1 # index of command window;
-
-  def handleEvent(self, event):
-    # hack
-    if isinstance(event, int):
-      if event == curses.KEY_F10:
-        self.driver.terminate()
-      if event == 20: # ctrl-T
-        def foo(cmd):
-          ret = lldb.SBCommandReturnObject()
-          self.driver.getCommandInterpreter().HandleCommand(cmd, ret)
-        foo('target create a.out')
-        foo('b main')
-        foo('run')
-    super(LLDBUI, self).handleEvent(event)
-
-def main(screen):
+def main():
   signal.signal(signal.SIGINT, sigint_handler)
 
   global event_queue
@@ -118,7 +151,7 @@ def main(screen):
   debugger = lldb.SBDebugger.Create()
 
   driver = debuggerdriver.createDriver(debugger, event_queue)
-  view = LLDBUI(screen, event_queue, driver)
+  view = LLDBUI(event_queue, driver)
 
   driver.start()
 
@@ -126,10 +159,7 @@ def main(screen):
   driver.handleCommand("settings set auto-confirm true")
 
   handle_args(driver, sys.argv)
-  view.eventLoop()
+  view.main()
 
 if __name__ == "__main__":
-  try:
-    curses.wrapper(main)
-  except KeyboardInterrupt:
-    exit()
+  main()
