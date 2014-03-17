@@ -11,7 +11,7 @@
 import lldb
 import lldbutil
 
-from optparse import OptionParser
+import argparse
 import os
 import signal
 import sys
@@ -29,6 +29,7 @@ import statuswin
 import urwid
 
 event_queue = None
+debug = False
 
 def test_a_out(driver):
   driver.handleCommand('target create a.out')
@@ -36,30 +37,33 @@ def test_a_out(driver):
   driver.handleCommand('run')
 
 def handle_args(driver, argv):
-  parser = OptionParser()
-  parser.add_option("-p", "--attach", dest="pid", help="Attach to specified Process ID", type="int")
-  parser.add_option("-c", "--core", dest="core", help="Load specified core file", type="string")
+  parser = argparse.ArgumentParser(description='LLDB Terminal User Interface')
+  parser.add_argument("-p", "--attach", dest="pid", type=int,
+                      help="Attach to specified Process ID")
+  parser.add_argument("-c", "--core",
+                      help="Load specified core file")
+  parser.add_argument("-d", "--debug", action='store_true',
+                      help="Enable lui debugging")
+  parser.add_argument('target', nargs='*',
+                      help="debug target")
 
-  (options, args) = parser.parse_args(argv)
+  args = parser.parse_args()
 
-  if options.pid is not None:
-    try:
-      pid = int(options.pid)
-      driver.attachProcess(ui, pid)
-    except ValueError:
-      print "Error: expecting integer PID, got '%s'" % options.pid
-  elif options.core is not None:
-    if not os.path.exists(options.core):
-      raise Exception("Specified core file '%s' does not exist." % options.core)
+  global debug
+  debug = args.debug
+
+  if args.pid is not None:
+    driver.attachProcess(args.pid)
+  elif args.core is not None:
+    if not os.path.exists(args.core):
+      raise Exception("Specified core file '%s' does not exist." % args.core)
     driver.loadCore(options.core)
-  elif len(args) == 2:
-    if not os.path.isfile(args[1]):
-      raise Exception("Specified target '%s' does not exist" % args[1])
-    driver.createTarget(args[1])
-  elif len(args) > 2:
-    if not os.path.isfile(args[1]):
-      raise Exception("Specified target '%s' does not exist" % args[1])
-    driver.createTarget(args[1], args[2:])
+  elif len(args.target) > 0:
+    target = args.target[0]
+    target_args = args.target[1:]
+    if not os.path.isfile(target):
+      raise Exception("Specified target '%s' does not exist" % target)
+    driver.createTarget(target, target_args)
 
 def sigint_handler(signal, frame):
   global debugger
@@ -93,20 +97,20 @@ class LLDBView(urwid.WidgetWrap):
     st = create(urwid.SolidFill(' '), 'Stacktrace')
     src = create(urwid.SolidFill(' '), 'Source')
     cmd = create(self.command_win, 'Commands')
-    evt = create(self.event_win, 'Events')
 
-    top = urwid.SolidFill('1')
-    bottom = urwid.SolidFill('2')
+    wins = [bp, st]
+    global debug
+    if debug:
+      evt = create(self.event_win, 'Events')
+      wins.append(evt)
+
+    vline = ('fixed', 1, urwid.AttrWrap(urwid.SolidFill(u' '), 'header'))
 
     self.frame = urwid.Frame(
-      body = urwid.Pile([
-               urwid.Columns([
-                 ('weight', 2, src),
-                 ('weight', 2, urwid.Pile([bp,
-                                           st]))
-               ]),
-               cmd,
-               evt]),
+      body = urwid.Columns([
+               urwid.Pile([src, cmd]),
+               vline,
+               urwid.Pile(wins)]),
       footer = urwid.AttrWrap(self.status_win, 'footer')) 
 
     return self.frame
@@ -170,6 +174,8 @@ def main():
 
   driver = debuggerdriver.createDriver(debugger, event_queue)
 
+  handle_args(driver, sys.argv)
+
   view = LLDBUI(event_queue, driver)
 
   # start the driver thread
@@ -178,7 +184,6 @@ def main():
   # hack to avoid hanging waiting for prompts!
   driver.handleCommand("settings set auto-confirm true")
 
-  handle_args(driver, sys.argv)
   view.main()
 
 if __name__ == "__main__":

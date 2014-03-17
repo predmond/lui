@@ -66,8 +66,8 @@ class DebuggerDriver(Thread):
                                            )
     def createTarget(self, target_image, args=None):
         self.handleCommand("target create %s" % target_image)
-        if args is not None:
-          self.handleCommand("settings set target.run-args %s" % args)
+        if args is not None and len(args) > 0:
+          self.handleCommand("settings set target.run-args %s" % ' '.join(args))
 
     def attachProcess(self, pid):
         self.handleCommand("process attach -p %d" % pid)
