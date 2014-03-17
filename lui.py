@@ -22,13 +22,18 @@ import debuggerdriver
 
 #import breakwin
 import commandwin
-#import eventwin
+import eventwin
 #import sourcewin
 import statuswin
 
 import urwid
 
 event_queue = None
+
+def test_a_out(driver):
+  driver.handleCommand('target create a.out')
+  driver.handleCommand('b main')
+  driver.handleCommand('run')
 
 def handle_args(driver, argv):
   parser = OptionParser()
@@ -81,8 +86,8 @@ class LLDBView(urwid.WidgetWrap):
              ('title', 'white', 'black', 'bold'),
              ]
 
-  def __init__(self, controller, driver):
-    self.controller = controller
+  def __init__(self, event_queue, driver):
+    self.event_queue = event_queue
     self.driver = driver
     urwid.WidgetWrap.__init__(self, self.main_window())
 
@@ -92,6 +97,7 @@ class LLDBView(urwid.WidgetWrap):
     self.command_win = commandwin.CommandWin(self.driver)
     #self.source_win = sourcewin.SourceWin(self.driver)
     #self.break_win = breakwin.BreakWin(self.driver)
+    self.event_win = eventwin.EventWin(self.event_queue)
 
     def create(w, title):
       return urwid.Frame(body = urwid.AttrWrap(w, 'body'),
@@ -101,6 +107,7 @@ class LLDBView(urwid.WidgetWrap):
     st = create(urwid.SolidFill(' '), 'Stacktrace')
     src = create(urwid.SolidFill(' '), 'Source')
     cmd = create(self.command_win, 'Commands')
+    evt = create(self.event_win, 'Events')
 
     top = urwid.SolidFill('1')
     bottom = urwid.SolidFill('2')
@@ -108,10 +115,12 @@ class LLDBView(urwid.WidgetWrap):
     self.frame = urwid.Frame(
       body = urwid.Pile([
                urwid.Columns([
-                 ('weight', 3, src),
-                 ('weight', 2, urwid.Pile([bp, st]))]),
-               #urwid.Divider('-'),
-               cmd]),
+                 ('weight', 2, src),
+                 ('weight', 2, urwid.Pile([bp,
+                                           st]))
+               ]),
+               cmd,
+               evt]),
       footer = urwid.AttrWrap(self.status_win, 'footer')) 
 
     return self.frame
@@ -120,39 +129,64 @@ class LLDBUI:
   def __init__(self, event_queue, driver):
     #super(LLDBUI, self).__init__(screen, event_queue)
 
+    self.event_queue = event_queue
     self.driver = driver
 
-    self.view = LLDBView(self, self.driver)
+    self.view = LLDBView(self.event_queue, self.driver)
 
   def unhandled_input(self, k):
     if k == 'f10':
       self.driver.terminate()
       raise urwid.ExitMainLoop()
     if k == 'f1':
-      def foo(cmd):
-        ret = lldb.SBCommandReturnObject()
-        self.driver.getCommandInterpreter().HandleCommand(cmd, ret)
-      foo('target create a.out')
-      foo('b main')
-      foo('run')
+      test_a_out(self.driver)
 
   def main(self):
-    self.loop = urwid.MainLoop(self.view, self.view.palette,
-                               unhandled_input = self.unhandled_input)
-    self.loop.run()
+    loop = urwid.MainLoop(self.view, self.view.palette,
+                          unhandled_input = self.unhandled_input)
+
+    fd = loop.watch_pipe(self.event_queue)
+    self.event_queue.set_pipe(fd)
+
+    loop.run()
+
+class LLDBEventQueue:
+  def __init__(self):
+    self.queue = Queue.Queue()
+    self.listeners = []
+    self.fd = -1
+
+  def set_pipe(self, fd):
+    self.fd = fd
+
+  def add_listener(self, listener):
+    self.listeners.append(listener)
+
+  def put(self, event):
+    self.queue.put(event)
+    if self.fd != -1:
+      os.write(self.fd, '1')
+
+  def __call__(self, data):
+    while not self.queue.empty():
+      event = self.queue.get()
+      for listener in self.listeners:
+        listener.handle_lldb_event(event)
 
 def main():
   signal.signal(signal.SIGINT, sigint_handler)
 
   global event_queue
-  event_queue = Queue.Queue()
+  event_queue = LLDBEventQueue()
 
   global debugger
   debugger = lldb.SBDebugger.Create()
 
   driver = debuggerdriver.createDriver(debugger, event_queue)
+
   view = LLDBUI(event_queue, driver)
 
+  # start the driver thread
   driver.start()
 
   # hack to avoid hanging waiting for prompts!
@@ -162,4 +196,5 @@ def main():
   view.main()
 
 if __name__ == "__main__":
+  print lldb
   main()

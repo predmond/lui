@@ -7,19 +7,48 @@
 ##
 ##===----------------------------------------------------------------------===##
 
-import cui
+import urwid
 import lldb, lldbutil
 
-class EventWin(cui.TitledWin):
-  def __init__(self, x, y, w, h):
-    super(EventWin, self).__init__(x, y, w, h, 'LLDB Event Log')
-    self.win.scrollok(1)
-    super(EventWin, self).draw()
+class EventWalker(urwid.ListWalker):
+  def __init__(self):
+    self.events = []
+    self.focus = 0
 
-  def handleEvent(self, event):
-    if isinstance(event, lldb.SBEvent):
-      self.win.scroll()
-      h = self.win.getmaxyx()[0]
-      self.win.addstr(h-1, 0, lldbutil.get_description(event))
+  def add(self, event):
+    text = urwid.Text(lldbutil.get_description(event))
+    self.events.append(text)
+    self.set_focus(len(self.events)-1)
+    return
+
+  def get_focus(self):
+    return self._get_at_pos(self.focus)
+
+  def set_focus(self, focus):
+    self.focus = focus
+    self._modified()
+
+  def get_next(self, start_from):
+    return self._get_at_pos(start_from + 1)
+
+  def get_prev(self, start_from):
+    return self._get_at_pos(start_from - 1)
+
+  def _get_at_pos(self, pos):
+   if pos < 0:
+     return None, None
+   if len(self.events) > pos:
+     return self.events[pos], pos
+   else:
+     return None, None
+
+class EventWin(urwid.ListBox):
+  def __init__(self, event_queue):
+    self.walker = EventWalker()
+    super(EventWin, self).__init__(self.walker)
+    event_queue.add_listener(self)
+
+  def handle_lldb_event(self, event):
+    self.walker.add(event)
     return
 
