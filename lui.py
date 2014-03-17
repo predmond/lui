@@ -20,7 +20,7 @@ import Queue
 
 import debuggerdriver
 
-#import breakwin
+import breakwin
 import commandwin
 import eventwin
 #import sourcewin
@@ -67,21 +67,7 @@ def sigint_handler(signal, frame):
 
 class LLDBView(urwid.WidgetWrap):
   palette = [('body',         'black',      'light gray', 'standout'),
-             ('header',       'white',      'dark red',   'bold'),
-             ('screen edge',  'light blue', 'dark cyan'),
-             ('main shadow',  'dark gray',  'black'),
-             ('line',         'black',      'light gray', 'standout'),
-             ('bg background','light gray', 'black'),
-             ('bg 1',         'black',      'dark blue', 'standout'),
-             ('bg 1 smooth',  'dark blue',  'black'),
-             ('bg 2',         'black',      'dark cyan', 'standout'),
-             ('bg 2 smooth',  'dark cyan',  'black'),
-             ('button normal','light gray', 'dark blue', 'standout'),
-             ('button select','white',      'dark green'),
-             ('line',         'black',      'light gray', 'standout'),
-             ('pg normal',    'white',      'black', 'standout'),
-             ('pg complete',  'white',      'dark magenta'),
-             ('pg smooth',     'dark magenta','black'),
+             ('header',       'white',      'dark blue',   'bold'),
              ('key', 'light cyan', 'black','underline'),
              ('title', 'white', 'black', 'bold'),
              ]
@@ -96,14 +82,14 @@ class LLDBView(urwid.WidgetWrap):
     self.status_win = statuswin.StatusWin()
     self.command_win = commandwin.CommandWin(self.driver)
     #self.source_win = sourcewin.SourceWin(self.driver)
-    #self.break_win = breakwin.BreakWin(self.driver)
+    self.break_win = breakwin.BreakWin(self.event_queue, self.driver)
     self.event_win = eventwin.EventWin(self.event_queue)
 
     def create(w, title):
       return urwid.Frame(body = urwid.AttrWrap(w, 'body'),
                          header = urwid.AttrWrap(urwid.Text(title), 'header'))
 
-    bp = create(urwid.SolidFill(' '), 'Breakpoints')
+    bp = create(self.break_win, 'Breakpoints')
     st = create(urwid.SolidFill(' '), 'Stacktrace')
     src = create(urwid.SolidFill(' '), 'Source')
     cmd = create(self.command_win, 'Commands')

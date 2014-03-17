@@ -7,63 +7,47 @@
 ##
 ##===----------------------------------------------------------------------===##
 
-import cui
-import curses
+import urwid
 import lldb, lldbutil
 import re
 
-class BreakWin(cui.ListWin):
-  def __init__(self, driver, x, y, w, h):
-    super(BreakWin, self).__init__(x, y, w, h)
+class BreakWalker(urwid.ListWalker):
+  def __init__(self, driver):
+    self.breaks = []
+    self.focus = 0
     self.driver = driver
-    self.update()
-    self.showDetails = {}
 
-  def handleEvent(self, event):
-    if isinstance(event, lldb.SBEvent):
-      if lldb.SBBreakpoint.EventIsBreakpointEvent(event):
-        self.update()
-    if isinstance(event, int):
-      if event == ord('d'):
-        self.deleteSelected()
-      if event == curses.ascii.NL or event == curses.ascii.SP:
-        self.toggleSelected()
-      elif event == curses.ascii.TAB:
-        if self.getSelected() != -1:
-          target = self.driver.getTarget()
-          if not target.IsValid():
-            return
-          i = target.GetBreakpointAtIndex(self.getSelected()).id
-          self.showDetails[i] = not self.showDetails[i]
-          self.update()
-    super(BreakWin, self).handleEvent(event)
+  def get_focus(self):
+    return self._get_at_pos(self.focus)
 
-  def toggleSelected(self):
-    if self.getSelected() == -1:
-      return
-    target = self.driver.getTarget()
-    if not target.IsValid():
-      return
-    bp = target.GetBreakpointAtIndex(self.getSelected())
-    bp.SetEnabled(not bp.IsEnabled())
+  def set_focus(self, focus):
+    self.focus = focus
+    self._modified()
 
-  def deleteSelected(self):
-    if self.getSelected() == -1:
-      return
-    target = self.driver.getTarget()
-    if not target.IsValid():
-      return
-    bp = target.GetBreakpointAtIndex(self.getSelected())
-    target.BreakpointDelete(bp.id)
+  def get_next(self, start_from):
+    return self._get_at_pos(start_from + 1)
+
+  def get_prev(self, start_from):
+    return self._get_at_pos(start_from - 1)
+
+  def _get_at_pos(self, pos):
+   if pos < 0:
+     return None, None
+   if len(self.breaks) > pos:
+     return self.breaks[pos], pos
+   else:
+     return None, None
 
   def update(self):
+    self.breaks = []
+
     target = self.driver.getTarget()
     if not target.IsValid():
-      self.win.erase()
-      self.win.noutrefresh()
       return
-    selected = self.getSelected()
-    self.clearItems()
+
+    #selected = self.getSelected()
+    #self.clearItems()
+
     for i in range(0, target.GetNumBreakpoints()):
       bp = target.GetBreakpointAtIndex(i)
       if bp.IsInternal():
@@ -82,9 +66,57 @@ class BreakWin(cui.ListWin):
         # bp unparsable
         pass
 
-      if self.showDetails.setdefault(bp.id, False):
-        for location in bp:
-          desc = lldbutil.get_description(location, lldb.eDescriptionLevelFull)
-          text += '\n  ' + desc
-      self.addItem(text)
-    self.setSelected(selected)
+      #if self.showDetails.setdefault(bp.id, False):
+      #  for location in bp:
+      #    desc = lldbutil.get_description(location, lldb.eDescriptionLevelFull)
+      #    text += '\n  ' + desc
+
+      self.breaks.append(urwid.Text(text))
+      self._modified()
+
+    #self.setSelected(selected)
+
+class BreakWin(urwid.ListBox):
+  def __init__(self, event_queue, driver):
+    self.walker = BreakWalker(driver)
+    super(BreakWin, self).__init__(self.walker)
+    event_queue.add_listener(self)
+    self.driver = driver
+
+  def handle_lldb_event(self, event):
+    if lldb.SBBreakpoint.EventIsBreakpointEvent(event):
+      self.walker.update()
+
+  #  if isinstance(event, int):
+  #    if event == ord('d'):
+  #      self.deleteSelected()
+  #    if event == curses.ascii.NL or event == curses.ascii.SP:
+  #      self.toggleSelected()
+  #    elif event == curses.ascii.TAB:
+  #      if self.getSelected() != -1:
+  #        target = self.driver.getTarget()
+  #        if not target.IsValid():
+  #          return
+  #        i = target.GetBreakpointAtIndex(self.getSelected()).id
+  #        self.showDetails[i] = not self.showDetails[i]
+  #        self.update()
+  #  super(BreakWin, self).handleEvent(event)
+
+  #def toggleSelected(self):
+  #  if self.getSelected() == -1:
+  #    return
+  #  target = self.driver.getTarget()
+  #  if not target.IsValid():
+  #    return
+  #  bp = target.GetBreakpointAtIndex(self.getSelected())
+  #  bp.SetEnabled(not bp.IsEnabled())
+
+  #def deleteSelected(self):
+  #  if self.getSelected() == -1:
+  #    return
+  #  target = self.driver.getTarget()
+  #  if not target.IsValid():
+  #    return
+  #  bp = target.GetBreakpointAtIndex(self.getSelected())
+  #  target.BreakpointDelete(bp.id)
+
