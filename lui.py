@@ -20,12 +20,8 @@ import Queue
 
 import debuggerdriver
 
-import breakwin
-import commandwin
-import eventwin
-import sourcewin
 import statuswin
-
+import layout
 import urwid
 
 event_queue = None
@@ -44,10 +40,18 @@ def handle_args(driver, argv):
                       help="Load specified core file")
   parser.add_argument("-d", "--debug", action='store_true',
                       help="Enable lui debugging")
+  parser.add_argument("--default_layout", action='store_true',
+                      help="Dump default layout")
   parser.add_argument('target', nargs='*',
                       help="debug target")
 
   args = parser.parse_args()
+
+  if args.default_layout:
+    print layout.default_layout
+    sys.exit(0)
+  #if args.layout is not None:
+  layout.load_layout()
 
   global debug
   debug = args.debug
@@ -84,44 +88,17 @@ class LLDBView(urwid.WidgetWrap):
   def main_window(self):
 
     self.status_win = statuswin.StatusWin()
-    self.command_win = commandwin.CommandWin(self.driver)
-    self.source_win = sourcewin.SourceWin(self.event_queue, self.driver)
-    self.break_win = breakwin.BreakWin(self.event_queue, self.driver)
-    self.event_win = eventwin.EventWin(self.event_queue)
 
-    def create(w, title):
-      return urwid.Frame(body = urwid.AttrWrap(w, 'body'),
-                         header = urwid.AttrWrap(urwid.Text(title), 'header'))
+    builder = layout.LayoutBuilder(self.event_queue, self.driver)
+    w = builder.build(layout.loaded_layout['default'])
 
-    bp = create(self.break_win, 'Breakpoints')
-    st = create(urwid.SolidFill(' '), 'Stacktrace')
-    src = create(self.source_win, 'Source')
-    cmd = create(self.command_win, 'Commands')
-
-    wins = [bp, st]
-    global debug
-    if debug:
-      evt = create(self.event_win, 'Events')
-      wins.append(evt)
-
-    vline = ('fixed', 1, urwid.AttrWrap(urwid.SolidFill(u' '), 'header'))
-
-    self.frame = urwid.Frame(
-      body = urwid.Columns([
-               urwid.Pile([src, cmd]),
-               vline,
-               urwid.Pile(wins)]),
-      footer = urwid.AttrWrap(self.status_win, 'footer')) 
-
+    self.frame = urwid.Frame(body = w, footer = urwid.AttrWrap(self.status_win, 'footer')) 
     return self.frame
 
 class LLDBUI:
   def __init__(self, event_queue, driver):
-    #super(LLDBUI, self).__init__(screen, event_queue)
-
     self.event_queue = event_queue
     self.driver = driver
-
     self.view = LLDBView(self.event_queue, self.driver)
 
   def unhandled_input(self, k):
