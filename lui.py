@@ -23,7 +23,7 @@ import debuggerdriver
 import breakwin
 import commandwin
 import eventwin
-#import sourcewin
+import sourcewin
 import statuswin
 
 import urwid
@@ -85,7 +85,7 @@ class LLDBView(urwid.WidgetWrap):
 
     self.status_win = statuswin.StatusWin()
     self.command_win = commandwin.CommandWin(self.driver)
-    #self.source_win = sourcewin.SourceWin(self.driver)
+    self.source_win = sourcewin.SourceWin(self.event_queue, self.driver)
     self.break_win = breakwin.BreakWin(self.event_queue, self.driver)
     self.event_win = eventwin.EventWin(self.event_queue)
 
@@ -95,7 +95,7 @@ class LLDBView(urwid.WidgetWrap):
 
     bp = create(self.break_win, 'Breakpoints')
     st = create(urwid.SolidFill(' '), 'Stacktrace')
-    src = create(urwid.SolidFill(' '), 'Source')
+    src = create(self.source_win, 'Source')
     cmd = create(self.command_win, 'Commands')
 
     wins = [bp, st]
