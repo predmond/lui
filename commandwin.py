@@ -48,23 +48,71 @@ class History(object):
       self.data[self.pos] = c
       self.pos += 1
 
+class CommandWalker(urwid.ListWalker):
+  def __init__(self):
+    self.lines = []
+    self.focus = 0
+
+  def output(self, out, attr):
+    for line in out.split('\n'):
+      text = urwid.AttrWrap(urwid.Text(line), attr)
+      self.lines.append(text)
+    self.set_focus(len(self.lines)-1)
+
+  def add(self, out):
+    self.output(out, 'body')
+
+  def error(self, out):
+    self.output(out, 'error')
+
+  def get_focus(self):
+    return self._get_at_pos(self.focus)
+
+  def set_focus(self, focus):
+    self.focus = focus
+    self._modified()
+
+  def get_next(self, start_from):
+    return self._get_at_pos(start_from + 1)
+
+  def get_prev(self, start_from):
+    return self._get_at_pos(start_from - 1)
+
+  def _get_at_pos(self, pos):
+   if pos < 0:
+     return None, None
+   if len(self.lines) > pos:
+     return self.lines[pos], pos
+   else:
+     return None, None
+
+
 class CommandWin(urwid.Frame):
   def __init__(self, driver):
     self.command = ""
     self.data = ""
     #driver.setSize(w, h)
 
-    #self.win.scrollok(1)
-    self.output = urwid.ListBox(urwid.SimpleListWalker([]))
-    self.edit = urwid.Edit('(lldb)')
+    self.walker = CommandWalker()
+    self.output = urwid.ListBox(self.walker)
+    self.edit = urwid.Edit(caption = '(lldb) ',
+                           allow_tab = False)
 
     self.driver = driver
     self.history = History()
 
     super(CommandWin, self).__init__(body = self.output, footer = self.edit)
 
+  def keypress(self, size, key):
+    if key == 'enter':
+      cmd = self.edit.get_edit_text()
+      self.edit.set_edit_text('')
+      self.handleCommand(cmd)
+    super(CommandWin, self).keypress(size, key)
+
   #  def enterCallback(content):
   #    self.handleCommand(content)
+
   #  def tabCompleteCallback(content):
   #    self.data = content
   #    matches = lldb.SBStringList()
@@ -90,26 +138,25 @@ class CommandWin(urwid.Frame):
   #  self.el.prompt = self.driver.getPrompt()
   #  self.el.showPrompt(self.startline, 0)
 
-  #def handleCommand(self, cmd):
-  #   # enter!
-  #  self.win.scroll(1) # TODO: scroll more for longer commands
-  #  if cmd == '':
-  #    cmd = self.history.previous('')
-  #  elif cmd in ('q', 'quit'):
-  #    self.driver.terminate()
-  #    return
+  def handleCommand(self, cmd):
+     # enter!
+    if cmd == '':
+      cmd = self.history.previous('')
+    elif cmd in ('q', 'quit'):
+      self.driver.terminate()
+      return
 
-  #  self.history.add(cmd)
-  #  ret = self.driver.handleCommand(cmd)
-  #  if ret.Succeeded():
-  #    out = ret.GetOutput()
-  #    attr = curses.A_NORMAL
-  #  else:
-  #    out = ret.GetError()
-  #    attr = curses.color_pair(3) # red on black
-  #  self.win.addstr(self.startline, 0, out + '\n', attr)
-  #  self.win.scroll(1)
-  #  self.el.showPrompt(self.startline, 0)
+    self.history.add(cmd)
+    ret = self.driver.handleCommand(cmd)
+    if ret.Succeeded():
+      out = ret.GetOutput()
+      self.walker.add(out)
+      #attr = curses.A_NORMAL
+    else:
+      out = ret.GetError()
+      self.walker.error(out)
+      #attr = curses.color_pair(3) # red on black
+    #self.win.addstr(self.startline, 0, out + '\n', attr)
 
   #def handleEvent(self, event):
   #  if isinstance(event, int):

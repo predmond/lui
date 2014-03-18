@@ -75,6 +75,7 @@ def sigint_handler(signal, frame):
 
 class LLDBView(urwid.WidgetWrap):
   palette = [('body',         'black',      'light gray', 'standout'),
+             ('error',        'dark red',   'light gray', 'standout'),
              ('header',       'white',      'dark blue',   'bold'),
              ('key', 'light cyan', 'black','underline'),
              ('title', 'white', 'black', 'bold'),
