@@ -123,7 +123,8 @@ class CommandEdit(urwid.Edit):
       self.set_edit_text(self.history.next())
       #self.index = len(self.content)
     else:
-      super(CommandEdit, self).keypress(size, key)
+      return super(CommandEdit, self).keypress(size, key)
+    return None
 
 class CommandWin(urwid.Frame):
   def __init__(self, driver):
