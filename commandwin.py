@@ -86,60 +86,81 @@ class CommandWalker(urwid.ListWalker):
    else:
      return None, None
 
+class CommandEdit(urwid.Edit):
+  """ Embed an 'editline'-compatible prompt inside a urwid.Edit widget. """
+  def __init__(self, prompt, history, enter_callback, tab_complete_callback):
+    self.history = history
+    self.enter_callback = enter_callback
+    self.tab_complete_callback = tab_complete_callback
+    super(CommandEdit, self).__init__(caption = prompt, allow_tab = False)
+
+  def keypress(self, size, key):
+    if key == 'enter':
+      self.enter_callback(self.get_edit_text())
+      self.set_edit_text('')
+    elif key == 'tab':
+      completion = self.tab_complete_callback(self.get_edit_text())
+      if len(completion) > 0:
+        self.set_edit_text(self.get_edit_text() + completion)
+    #elif key == curses.KEY_DC or key == curses.ascii.DEL or key == curses.ascii.EOT:
+    #  self.content = self.content[:self.index] + self.content[self.index+1:]
+    #elif key == curses.ascii.VT: # CTRL-K
+    #  self.content = self.content[:self.index]
+    #elif key == curses.KEY_LEFT or key == curses.ascii.STX: # left or CTRL-B
+    #  if self.index > 0:
+    #    self.index -= 1
+    #elif key == curses.KEY_RIGHT or key == curses.ascii.ACK: # right or CTRL-F
+    #  if self.index < len(self.content):
+    #    self.index += 1
+    #elif key == curses.ascii.SOH: # CTRL-A
+    #  self.index = 0
+    #elif key == curses.ascii.ENQ: # CTRL-E
+    #  self.index = len(self.content)
+    elif key == 'up': #or key == curses.ascii.DLE: # up or CTRL-P
+      self.set_edit_text(self.history.previous(self.get_edit_text()))
+      #self.index = len(self.content)
+    elif key == 'down': # or key == curses.ascii.SO: # down or CTRL-N
+      self.set_edit_text(self.history.next())
+      #self.index = len(self.content)
+    else:
+      super(CommandEdit, self).keypress(size, key)
 
 class CommandWin(urwid.Frame):
   def __init__(self, driver):
     self.command = ""
     self.data = ""
     #driver.setSize(w, h)
-
-    self.walker = CommandWalker()
-    self.output = urwid.ListBox(self.walker)
-    self.edit = urwid.Edit(caption = '(lldb) ',
-                           allow_tab = False)
-
     self.driver = driver
     self.history = History()
 
+    self.walker = CommandWalker()
+    self.output = urwid.ListBox(self.walker)
+
+    def enter_callback(content):
+      self.handle_command(content)
+
+    def tab_complete_callback(content):
+      self.data = content
+      matches = lldb.SBStringList()
+      commandinterpreter = self.driver.getCommandInterpreter()
+      commandinterpreter.HandleCompletion(self.data, len(self.data), 0, -1, matches)
+      if matches.GetSize() == 2:
+        return matches.GetStringAtIndex(0)
+      else:
+        self.walker.add("Available Completions:")
+        for m in islice(matches, 1, None):
+          self.walker.add(m)
+        return ''
+
+    self.edit = CommandEdit(self.driver.getPrompt(),
+                            self.history,
+                            enter_callback,
+                            tab_complete_callback)
+
     super(CommandWin, self).__init__(body = self.output, footer = self.edit)
 
-  def keypress(self, size, key):
-    if key == 'enter':
-      cmd = self.edit.get_edit_text()
-      self.edit.set_edit_text('')
-      self.handleCommand(cmd)
-    super(CommandWin, self).keypress(size, key)
-
-  #  def enterCallback(content):
-  #    self.handleCommand(content)
-
-  #  def tabCompleteCallback(content):
-  #    self.data = content
-  #    matches = lldb.SBStringList()
-  #    commandinterpreter = self.getCommandInterpreter()
-  #    commandinterpreter.HandleCompletion(self.data, self.el.index, 0, -1, matches)
-  #    if matches.GetSize() == 2:
-  #      self.el.content += matches.GetStringAtIndex(0)
-  #      self.el.index = len(self.el.content)
-  #      self.el.draw()
-  #    else:
-  #      self.win.move(self.el.starty, self.el.startx)
-  #      self.win.scroll(1)
-  #      self.win.addstr("Available Completions:")
-  #      self.win.scroll(1)
-  #      for m in islice(matches, 1, None):
-  #        self.win.addstr(self.win.getyx()[0], 0, m)
-  #        self.win.scroll(1)
-  #      self.el.draw()
-
-  #  self.startline = self.win.getmaxyx()[0]-2
-
-  #  self.el = cui.CursesEditLine(self.win, self.history, enterCallback, tabCompleteCallback)
-  #  self.el.prompt = self.driver.getPrompt()
-  #  self.el.showPrompt(self.startline, 0)
-
-  def handleCommand(self, cmd):
-     # enter!
+  def handle_command(self, cmd):
+    # enter!
     if cmd == '':
       cmd = self.history.previous('')
     elif cmd in ('q', 'quit'):
@@ -151,20 +172,6 @@ class CommandWin(urwid.Frame):
     if ret.Succeeded():
       out = ret.GetOutput()
       self.walker.add(out)
-      #attr = curses.A_NORMAL
     else:
       out = ret.GetError()
       self.walker.error(out)
-      #attr = curses.color_pair(3) # red on black
-    #self.win.addstr(self.startline, 0, out + '\n', attr)
-
-  #def handleEvent(self, event):
-  #  if isinstance(event, int):
-  #    if event == curses.ascii.EOT and self.el.content == '':
-  #      # When the command is empty, treat CTRL-D as EOF.
-  #      self.driver.terminate()
-  #      return
-  #    self.el.handleEvent(event)
-
-  def getCommandInterpreter(self):
-    return self.driver.getCommandInterpreter()
