@@ -42,7 +42,6 @@ class LayoutBuilder:
     if not isinstance(obj, list) or len(obj) < 1:
       self.layout_error('cols object requires array of at least one item')
     objs = [self.build_layout(x) for x in obj]
-    #vline = ('fixed', 1, urwid.AttrWrap(urwid.SolidFill(u' '), 'header'))
     return urwid.Columns(objs)
   
   def build_rows(self, obj):
@@ -53,8 +52,10 @@ class LayoutBuilder:
   
   def build_view(self, obj):
     def create(w, title):
-      return urwid.Frame(body = urwid.AttrWrap(w, 'body'),
-                         header = urwid.AttrWrap(urwid.Text(title), 'header'))
+      w = urwid.Columns([w, ('fixed', 1, urwid.SolidFill(u'|'))])
+      w = urwid.AttrWrap(w, 'body')
+      return urwid.Frame(body = w,
+                         header = urwid.AttrWrap(urwid.Text(title), 'header', 'title'))
     if obj == 'source':
       return create(sourcewin.SourceWin(self.event_queue, self.driver), 'Source')
     elif obj == 'command':
