@@ -16,7 +16,7 @@ class EventWalker(urwid.ListWalker):
     self.focus = 0
 
   def add(self, event):
-    text = urwid.Text(lldbutil.get_description(event))
+    text = urwid.Text('* ' + lldbutil.get_description(event))
     self.events.append(text)
     self.set_focus(len(self.events)-1)
     return
