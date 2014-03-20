@@ -17,11 +17,23 @@ class SourceWalker(urwid.ListWalker):
     self.focus = 0
     self.lines = []
 
-  def set_filename(self, filename):
+  def message(self, msg):
+    w = urwid.Text('\n[ %s ]' % msg, align='center')
+    self.lines = [w]
+    self._modified()
+
+  def set_unavailable(self, msg = 'Source information unavailable'):
+    self.message(msg)
+
+  def set_filepath(self, path):
     self.lines = []
     lines = []
-    with open(filename) as f:
-      lines = [line.rstrip('\r\n') for line in f]
+    try:
+      with open(path) as f:
+        lines = [line.rstrip('\r\n') for line in f]
+    except IOError as e:
+      self.set_unavailable(e.strerror)
+      return
 
     #try:
     #  from pygments.lexers import get_lexer_for_filename
@@ -125,8 +137,8 @@ class SourceWalker(urwid.ListWalker):
     #except ImportError:
     #  pass
 
-    for line in lines:
-      self.lines.append(urwid.Text(line))
+    for lineno, line in enumerate(lines):
+      self.lines.append(urwid.Text('%4d | %s' % (lineno + 1, line)))
 
     self._modified()
 
@@ -169,80 +181,47 @@ class SourceWin(urwid.ListBox):
     self.markerBP = "B> "
     self.markerNone  = "   "
 
-    #try:
-    #  from pygments.formatters import TerminalFormatter
-    #  self.formatter = TerminalFormatter()
-    #except ImportError:
-    #  #self.win.addstr("\nWarning: no 'pygments' library found. Syntax highlighting is disabled.")
-    #  self.lexer = None
-    #  self.formatter = None
-    #  pass
-
     # FIXME: syntax highlight broken
     self.formatter = None
     self.lexer = None
 
   def handle_lldb_event(self, event):
-    #if lldb.SBBreakpoint.EventIsBreakpointEvent(event):
-    #  self.handleBPEvent(event)
-
+    if lldb.SBBreakpoint.EventIsBreakpointEvent(event):
+      self.handle_bp_event(event)
     if lldb.SBProcess.EventIsProcessEvent(event) and \
         not lldb.SBProcess.GetRestartedFromEvent(event):
       process = lldb.SBProcess.GetProcessFromEvent(event)
       if not process.IsValid():
         return
       if process.GetState() == lldb.eStateStopped:
-        self.refreshSource(process)
-    #  elif process.GetState() == lldb.eStateExited:
-    #    self.notifyExited(process)
+        self.refresh_source(process)
+      elif process.GetState() == lldb.eStateExited:
+        self.notify_exited(process)
+    if lldb.SBThread.EventIsThreadEvent(event):
+      thread = lldb.SBThread.GetThreadFromEvent(event)
+      self.refresh_source(thread.process)
+      #self.walker.message(str(event))
 
-#  def notifyExited(self, process):
-#    target = lldbutil.get_description(process.GetTarget())
-#    pid = process.GetProcessID()
-#    ec = process.GetExitStatus()
-#    #self.win.addstr("\nProcess %s [%d] has exited with exit-code %d" % (target, pid, ec))
-#
-  def refreshSource(self, process = None):
+  def notify_exited(self, process):
+    target = lldbutil.get_description(process.GetTarget())
+    pid = process.GetProcessID()
+    ec = process.GetExitStatus()
+    self.walker.message("Process %s [%d] has exited with exit-code %d" % (target, pid, ec))
+
+  def refresh_source(self, process = None):
     if process is not None:
       loc = process.GetSelectedThread().GetSelectedFrame().GetLineEntry()
       f = loc.GetFileSpec()
       self.pc_line = loc.GetLine()
 
       if not f.IsValid():
-        self.win.addstr(0, 0, "Invalid source file")
+        self.walker.set_unavailable()
         return
 
       self.filename = f.GetFilename()
-      #path = os.path.join(f.GetDirectory(), self.filename)
-      #self.setTitle(path)
-      #self.content = self.getContent(path)
-      #self.updateViewline()
+      path = os.path.join(f.GetDirectory(), self.filename)
+      self.walker.set_filepath(path)
 
-    if self.filename is None:
-      return
-
-    self.walker.set_filename(self.filename)
-#   
-#    if self.formatter is not None:
-#      from pygments.lexers import get_lexer_for_filename
-#      self.lexer = get_lexer_for_filename(self.filename)
-#
-#    bps = [] if not self.filename in self.breakpoints else self.breakpoints[self.filename]
-#    self.win.erase()
-#    if self.content:
-#      self.formatContent(self.content, self.pc_line, bps)
-#
-#  def getContent(self, path):
-#    content = []
-#    if path in self.sources:
-#      content = self.sources[path]
-#    else:
-#      if os.path.exists(path): 
-#        with open(path) as x:
-#          content = x.readlines()
-#        self.sources[path] = content
-#    return content
-#
 #  def formatContent(self, content, pc_line, breakpoints):
 #    source = ""
 #    count = 1
@@ -264,13 +243,6 @@ class SourceWin(urwid.ListBox):
 #      count = count + 1
 #    return source
 #
-#  def highlight(self, source):
-#    if self.lexer and self.formatter:
-#      from pygments import highlight
-#      return highlight(source, self.lexer, self.formatter)
-#    else:
-#      return source
-#
 #  def addBPLocations(self, locations):
 #    for path in locations:
 #      lines = locations[path]
@@ -287,51 +259,49 @@ class SourceWin(urwid.ListBox):
 #      else:
 #        raise "Removing locations that were never added...no good"
 #
-#  def handleBPEvent(self, event):
-#    def getLocations(event):
-#      locs = {}
-#
-#      bp = lldb.SBBreakpoint.GetBreakpointFromEvent(event)
-#
-#      if bp.IsInternal():
-#        # don't show anything for internal breakpoints
-#        return
-#
-#      for location in bp:
-#        # hack! getting the LineEntry via SBBreakpointLocation.GetAddress.GetLineEntry does not work good for
-#        # inlined frames, so we get the description (which does take into account inlined functions) and parse it.
-#        desc = lldbutil.get_description(location, lldb.eDescriptionLevelFull)
-#        match = re.search('at\ ([^:]+):([\d]+)', desc)
-#        try:
-#          path = match.group(1)
-#          line = int(match.group(2).strip())
-#        except ValueError as e:
-#          # bp loc unparsable
-#          continue
-#
-#        if path in locs:
-#          locs[path].add(line)
-#        else:
-#          locs[path] = set([line])
-#      return locs
-#
-#    event_type = lldb.SBBreakpoint.GetBreakpointEventTypeFromEvent(event)
-#    if event_type == lldb.eBreakpointEventTypeEnabled \
-#        or event_type == lldb.eBreakpointEventTypeAdded \
-#        or event_type == lldb.eBreakpointEventTypeLocationsResolved \
-#        or event_type == lldb.eBreakpointEventTypeLocationsAdded:
-#      self.addBPLocations(getLocations(event))
-#    elif event_type == lldb.eBreakpointEventTypeRemoved \
-#        or event_type == lldb.eBreakpointEventTypeLocationsRemoved \
-#        or event_type == lldb.eBreakpointEventTypeDisabled:
-#      self.removeBPLocations(getLocations(event))
-#    elif event_type == lldb.eBreakpointEventTypeCommandChanged \
-#        or event_type == lldb.eBreakpointEventTypeConditionChanged \
-#        or event_type == lldb.eBreakpointEventTypeIgnoreChanged \
-#        or event_type == lldb.eBreakpointEventTypeThreadChanged \
-#        or event_type == lldb.eBreakpointEventTypeInvalidType:
-#      # no-op
-#      pass
-#    self.refreshSource()
+  def handle_bp_event(self, event):
+    def getLocations(event):
+      locs = {}
 
+      bp = lldb.SBBreakpoint.GetBreakpointFromEvent(event)
 
+      if bp.IsInternal():
+        # don't show anything for internal breakpoints
+        return
+
+      for location in bp:
+        # hack! getting the LineEntry via SBBreakpointLocation.GetAddress.GetLineEntry does not work good for
+        # inlined frames, so we get the description (which does take into account inlined functions) and parse it.
+        desc = lldbutil.get_description(location, lldb.eDescriptionLevelFull)
+        match = re.search('at\ ([^:]+):([\d]+)', desc)
+        try:
+          path = match.group(1)
+          line = int(match.group(2).strip())
+        except ValueError as e:
+          # bp loc unparsable
+          continue
+
+        if path in locs:
+          locs[path].add(line)
+        else:
+          locs[path] = set([line])
+      return locs
+
+    #event_type = lldb.SBBreakpoint.GetBreakpointEventTypeFromEvent(event)
+    #if event_type == lldb.eBreakpointEventTypeEnabled \
+    #    or event_type == lldb.eBreakpointEventTypeAdded \
+    #    or event_type == lldb.eBreakpointEventTypeLocationsResolved \
+    #    or event_type == lldb.eBreakpointEventTypeLocationsAdded:
+    #  self.addBPLocations(getLocations(event))
+    #elif event_type == lldb.eBreakpointEventTypeRemoved \
+    #    or event_type == lldb.eBreakpointEventTypeLocationsRemoved \
+    #    or event_type == lldb.eBreakpointEventTypeDisabled:
+    #  self.removeBPLocations(getLocations(event))
+    #elif event_type == lldb.eBreakpointEventTypeCommandChanged \
+    #    or event_type == lldb.eBreakpointEventTypeConditionChanged \
+    #    or event_type == lldb.eBreakpointEventTypeIgnoreChanged \
+    #    or event_type == lldb.eBreakpointEventTypeThreadChanged \
+    #    or event_type == lldb.eBreakpointEventTypeInvalidType:
+    #  # no-op
+    #  pass
+    self.refresh_source()
