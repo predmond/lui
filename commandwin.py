@@ -160,6 +160,8 @@ class CommandWin(urwid.Frame):
 
     super(CommandWin, self).__init__(body = self.output, footer = self.edit)
 
+    self.handle_command('version')
+
   def handle_command(self, cmd):
     # enter!
     if cmd == '':
