@@ -85,6 +85,9 @@ class LLDBView(urwid.WidgetWrap):
              ('header', 'black',      'light gray', 'bold'),
              ('key',    'light cyan', 'black', 'underline'),
              ('title',  'white',      'black', 'bold'),
+             ('running','light green','black', 'blink'),
+             ('stopped','yellow',     'black', 'bold'),
+             ('exited', 'dark red',   'black', 'bold'),
              ]
 
   def __init__(self, event_queue, driver):
@@ -109,6 +112,10 @@ class LLDBUI:
     self.view = LLDBView(self.event_queue, self.driver)
 
   def unhandled_input(self, k):
+    if k == 'f5':
+      self.driver.handleCommand('run')
+    if k == 'shift f5':
+      self.driver.handleCommand('continue')
     if k == 'f10':
       self.driver.terminate()
       raise urwid.ExitMainLoop()

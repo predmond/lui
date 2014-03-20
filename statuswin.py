@@ -10,20 +10,31 @@
 import lldb, lldbutil
 import urwid
 
-class StatusWin(urwid.Text):
+class StatusWin(urwid.Columns):
   def __init__(self, event_queue):
     event_queue.add_listener(self)
 
-    self.items = [
+    items = [
         ('title', "LUI"), "    ",
         ('key', "F1"), " Help ",
         ('key', "F3"), " Cycle-focus ",
         ('key', "F10"), " Quit "
       ]
-    super(StatusWin, self).__init__(self.items)
+    self.text = urwid.Text(items)
+    self.status = urwid.Text('', align='right')
+    self.status_attr = urwid.AttrWrap(self.status, 'stopped')
+    super(StatusWin, self).__init__([self.text, self.status_attr])
 
   def handle_lldb_event(self, event):
     if lldb.SBProcess.EventIsProcessEvent(event):
       state = lldb.SBProcess.GetStateFromEvent(event)
       status = lldbutil.state_type_to_str(state)
-      self.set_text(self.items + [status])
+      if status == 'running':
+        self.status_attr.set_attr('running')
+      elif status == 'stopped':
+        self.status_attr.set_attr('stopped')
+      elif status == 'exited':
+        self.status_attr.set_attr('exited')
+      else:
+        self.status_attr.set_attr(None)
+      self.status.set_text('%s' % status)
