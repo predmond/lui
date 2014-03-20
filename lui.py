@@ -40,6 +40,8 @@ def handle_args(driver, argv):
                       help="Load specified core file")
   parser.add_argument("-d", "--debug", action='store_true',
                       help="Enable lui debugging")
+  parser.add_argument("--layout", 
+                      help="Load layout from file")
   parser.add_argument("--default_layout", action='store_true',
                       help="Dump default layout")
   parser.add_argument('target', nargs='*',
@@ -50,8 +52,12 @@ def handle_args(driver, argv):
   if args.default_layout:
     print layout.default_layout
     sys.exit(0)
-  #if args.layout is not None:
-  layout.load_layout()
+  if args.layout:
+    with open(args.layout) as f:
+      json = f.read()
+      layout.load_layout(json)
+  else:
+    layout.load_layout()
 
   global debug
   debug = args.debug
@@ -74,11 +80,11 @@ def sigint_handler(signal, frame):
   debugger.terminate()
 
 class LLDBView(urwid.WidgetWrap):
-  palette = [('body',         'black',      'light gray', 'standout'),
-             ('error',        'dark red',   'light gray', 'standout'),
-             ('header',       'white',      'dark blue',   'bold'),
-             ('key', 'light cyan', 'black','underline'),
-             ('title', 'white', 'black', 'bold'),
+  palette = [('body',   'light gray', 'black', 'standout'),
+             ('error',  'dark red',   'black', 'standout'),
+             ('header', 'black',      'light gray', 'bold'),
+             ('key',    'light cyan', 'black', 'underline'),
+             ('title',  'white',      'black', 'bold'),
              ]
 
   def __init__(self, event_queue, driver):
@@ -88,7 +94,7 @@ class LLDBView(urwid.WidgetWrap):
 
   def main_window(self):
 
-    self.status_win = statuswin.StatusWin()
+    self.status_win = statuswin.StatusWin(self.event_queue)
 
     builder = layout.LayoutBuilder(self.event_queue, self.driver)
     w = builder.build(layout.loaded_layout['default'])
